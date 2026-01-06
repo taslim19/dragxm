@@ -24,28 +24,37 @@ from .mltb_client import TgClient
 
 
 def update_qb_options():
-    if not qbit_options:
-        qbit_options.update(dict(qbittorrent_client.app_preferences()))
-        del qbit_options["listen_port"]
-        for k in list(qbit_options.keys()):
-            if k.startswith("rss"):
-                del qbit_options[k]
-        qbit_options["web_ui_password"] = "mltbmltb"
-        qbittorrent_client.app_set_preferences({"web_ui_password": "mltbmltb"})
-    else:
-        qbittorrent_client.app_set_preferences(qbit_options)
+    try:
+        if not qbit_options:
+            qbit_options.update(dict(qbittorrent_client.app_preferences()))
+            del qbit_options["listen_port"]
+            for k in list(qbit_options.keys()):
+                if k.startswith("rss"):
+                    del qbit_options[k]
+            qbit_options["web_ui_password"] = "mltbmltb"
+            qbittorrent_client.app_set_preferences({"web_ui_password": "mltbmltb"})
+        else:
+            qbittorrent_client.app_set_preferences(qbit_options)
+    except Exception as e:
+        LOGGER.warning(f"Failed to connect to qBittorrent: {e}. Continuing without qBittorrent support.")
 
 
 def update_aria2_options():
-    if not aria2_options:
-        aria2_options.update(aria2.client.get_global_option())
-    else:
-        aria2.set_global_options(aria2_options)
+    try:
+        if not aria2_options:
+            aria2_options.update(aria2.client.get_global_option())
+        else:
+            aria2.set_global_options(aria2_options)
+    except Exception as e:
+        LOGGER.warning(f"Failed to connect to Aria2: {e}. Continuing without Aria2 support.")
 
 
 async def update_nzb_options():
-    no = (await sabnzbd_client.get_config())["config"]["misc"]
-    nzb_options.update(no)
+    try:
+        no = (await sabnzbd_client.get_config())["config"]["misc"]
+        nzb_options.update(no)
+    except Exception as e:
+        LOGGER.warning(f"Failed to connect to SABnzbd: {e}. Continuing without SABnzbd support.")
 
 
 async def load_settings():
@@ -220,11 +229,20 @@ async def load_configurations():
         async with aiopen(".netrc", "w"):
             pass
 
-    await (
-        await create_subprocess_shell(
-            "chmod 600 .netrc && cp .netrc /root/.netrc && chmod +x aria-nox-nzb.sh && ./aria-nox-nzb.sh"
+    try:
+        # Try to copy .netrc to /root/.netrc if running as root, otherwise skip
+        proc = await create_subprocess_shell(
+            "chmod 600 .netrc && cp .netrc /root/.netrc 2>/dev/null || true && chmod +x aria-nox-nzb.sh && ./aria-nox-nzb.sh"
         )
-    ).wait()
+        await proc.wait()
+    except Exception as e:
+        LOGGER.warning(f"Failed to copy .netrc to /root/.netrc: {e}. Continuing anyway.")
+        # Still try to run the script even if copy fails
+        try:
+            proc = await create_subprocess_shell("chmod +x aria-nox-nzb.sh && ./aria-nox-nzb.sh")
+            await proc.wait()
+        except Exception as e2:
+            LOGGER.warning(f"Failed to run aria-nox-nzb.sh: {e2}")
 
     if Config.BASE_URL:
         await create_subprocess_shell(
